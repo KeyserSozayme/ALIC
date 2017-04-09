@@ -1,0 +1,337 @@
+#!/usr/bin/env bash
+
+##
+# 
+# A R C H  L I N U X  I N S T A L L E R  &  C O N F I G U R A T O R
+# 
+# Author:   Keith King
+# Version:  0.1
+# 
+##
+
+set -o noclobber
+set -o nounset
+
+#---------------#
+#-| Variables |-#
+#---------------#
+
+declare varMe="$(basename -s .sh $0)"
+declare varSupportedDrives="^sd\|^hd\|^xvd"
+declare -a listOfDisks=($(lsblk | grep "$varSupportedDrives" | awk '{print $1}'))
+declare -a listofPartitions
+declare varRequiredPackages="base base-devel vim"
+
+declare varPartNumber=1
+declare varLabel="Partition"
+declare varStart="0%"
+declare varEnd="50%"
+
+declare varSkipSafety=false
+declare varArgument
+declare varAnswer
+declare varMenuChoice
+
+declare varLines="$((`tput lines` / 3))"
+declare varCols="80"
+
+#---------------#
+#-| Functions |-#
+#---------------#
+
+# Echo in Red
+function echoRed () { echo -e "\033[1;96m$varMe: \033[1;31m$@\033[0m"; }
+###
+
+# Echo in Blue
+function echoBlue () { echo -e "\033[1;96m$varMe: \033[1;34m$@\033[0m"; }
+###
+
+# Echo in Green
+function echoGreen () { echo -e "\033[1;96m$varMe: \033[1;32m$@\033[0m"; }
+###
+
+# Quit and Throw an Error
+function die () {
+
+    echoRed "$@"
+    echoRed "Exiting..."
+    exit 1
+
+}
+###
+
+# Ensure System is in UEFI Mode
+function safetyUEFI () {
+
+    if [ ! -d /sys/firmware/efi/efivars ]; then
+        die "System is not in UEFI Mode!"
+    fi
+
+}
+###
+
+# Ensure connected to internet
+function safetyInternet () {
+
+    if !(ping -c 1 8.8.8.8 &> /dev/null); then
+        die "Ping Test Failed! Connect to the internet and try again."
+    fi
+
+}
+###
+
+# Ensure Dialog is Installed
+function safetyHaveDialog () {
+    
+    if !(type dialog &> /dev/null); then
+        
+        echoRed 'The Program "Dialog" is not installed!'
+        read -n 1 -p "Would you like to install it? (Y/n): " varAnswer
+        echo
+        
+        if [ "$varAnswer" == "y" ] || [ "$varAnswer" == "Y" ]; then
+            echoBlue "Installing Dialog..."
+            pacman -Sy --noconfirm dialog
+        else
+            die "This Script requires Dialog to function!"
+        fi
+    fi
+
+}
+###
+
+# Get Disk Size
+function getDiskSize () { echo "$(lsblk | grep "^$1" | awk '{print $4}')"; }
+###
+
+# List Disks
+function genDiskList () {
+
+    for device in "${listOfDisks[@]}"; do
+        echo -e "$device $(getDiskSize $device)"
+    done
+
+}
+###
+
+# Select a Disk
+function doSelectDisk () {
+
+    if [ "${#listOfDisks[@]}" == 1 ]; then
+        varSelectedDisk="${listOfDisks[0]}"
+    else
+        varSelectedDisk="$(dialog --title "Select Disk" --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "Select a Disk" $varLines $varCols $(($varLines - 8)) $(genDiskList) 3>&1 1>&2 2>&3)"
+    fi
+
+    varSelectedDisk="/dev/$varSelectedDisk"
+
+}
+###
+
+# Initalize the Disk
+function doInitDisk () {
+
+    if !(dialog --title "Initalization" --yes-label "Yes, Erase it." --no-label "No, Stop!" --defaultno --backtitle "$varMe" --yesno \
+        "ALL DATA ON $varSelectedDisk WILL BE ERASED. ARE YOU SURE YOU ANT TO CONTINUE?" $varLines $varCols); then return; fi;
+
+    if (parted -sa opt $varSelectedDisk mklabel gpt); then
+        dialog --title "Initalization" --msgbox "Initalization Successful!" $varLines $varCols
+    else
+        die "Something went wrong during initialization!"
+    fi
+
+}
+###
+
+# Function to select a Partition Number
+function selectPartNumber () {
+
+   listOfPartitions=($(parted -s $varSelectedDisk print | awk '{print $1}' | tail -n +8))
+
+   for partition in "${listOfPartitions[@]}"; do
+       echo -e "$partition $varSelectedDisk$partition:$(parted -s $varSelectedDisk print | awk '{print $4}' | tail -n +8 | sed -n "$partition p")"
+   done
+
+}
+###
+
+# Add a Partition
+function partAdd () {
+
+    while true; do
+        varMenuChoice="$(dialog --title "Add a Partition" --no-tags --ok-label "Select" --extra-button --extra-label "Add Partition" --cancel-label "Go Back" --backtitle "$varMe" \
+            --menu "Select an Option" $varLines $varCols 4 \
+            1   "Number : $varPartNumber" \
+            2   "Label  : \"$varLabel\""  \
+            3   "Start  : $varStart"      \
+            4   "End    : $varEnd"        \
+            3>&1 1>&2 2>&3)"
+
+        if [ "$?" == 3 ]; then
+
+            if (parted -sa opt $varSelectedDisk mkpart $varPartNumber $varStart $varEnd) && (parted -sa opt $varSelectedDisk name $varPartNumber "$varLabel"); then 
+                
+                let "varPartNumber++"
+                varLabel="Partiton"
+                varStart=$varEnd
+                varEnd="100%"
+
+                dialog --title "Add a Partition" --backtitle "$varMe" --msgbox "Partition Added Successfully!" $varLines $varCols
+
+            else
+                die "Something went wrong with adding the partiton"
+            fi
+
+        else
+
+            case "$varMenuChoice" in
+                1)  
+                    varPartNumber="$(dialog --title "Partition Number" --backtitle "$varMe" --inputbox "What partition of \"$varSelectedDisk\" would you like to add?" \
+                        $varLines $varCols "$varPartNumber" 3>&1 1>&2 2>&3)"
+                    ;;
+    
+                2)  
+                    varLabel="$(dialog --title "Partition Label" --backtitle "$varMe" --inputbox "What is the Label for the Partition?" $varLines $varCols "$varLabel" 3>&1 1>&2 2>&3)"
+                    ;;
+
+                3)  
+                    varStart="$(dialog --title "Partition Start" --backtitle "$varMe" --inputbox "Where will the partition Start?" $varLines $varCols "$varStart" 3>&1 1>&2 2>&3)"
+                    ;;
+
+                4)  
+                    varEnd="$(dialog --title "Partition End" --backtitle "$varMe" --inputbox "Where will the Partition End?" $varLines $varCols "$varEnd" 3>&1 1>&2 2>&3)"
+                    ;;
+
+                *)  return  ;;
+            esac
+
+        fi
+
+    done
+
+}
+###
+
+# Remove a Partition
+function partRm () {
+    
+    varPartNumber="$(dialog --title "Remove a Partition" --no-tags --ok-label "Remove" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+        "What Partition would you like to remove?" $varLines $varCols $(($varLines - 8)) $(selectPartNumber) 3>&1 1>&2 2>&3)"
+
+    if [ $? == 1 ]; then return; fi;
+
+    if (parted -sa opt $varSelectedDisk rm $varPartNumber); then
+        dialog --title "Remove Partition" --backtitle "$varMe" --msgbox "Successfully Removed $varSelectedDisk$varPartNumber!" $varLines $varCols
+    else
+        die "Removal of $varSelectedDrive$varPartNumber Failed!"
+    fi
+
+}
+###
+
+# Set a Partition Flag
+function partSet () {
+   die "PartSet" 
+}
+###
+
+# Partition the Disk
+function doPartDisk () {
+    
+    while true; do
+
+        varMenuChoice="$(dialog --title "Partition $varSelectedDisk" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "$(parted -s $varSelectedDisk print | sed '1 i\ ')" $(($varLines + 5)) $varCols 3 \
+            1   "Add a Partition"       \
+            2   "Remove a Partition"    \
+            3   "Set a Partition Flag"  \
+            3>&1 1>&2 2>&3)"
+
+        case "$varMenuChoice" in
+            1)  partAdd ;;
+            2)  partRm  ;;
+            3)  partSet ;;
+            *)  return  ;;
+        esac
+    done
+
+}
+###
+
+# Mount a Partition
+function doMountPart () {
+    die "DoMountPart"
+}
+###
+
+# Menu for Disk Preparation
+function menuPrepareDisks () {
+    
+    doSelectDisk
+
+    while true; do
+        varMenuChoice="$(dialog --title "Prepare Disks" --notags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "What would you like to do to \"$varSelectedDisk\"?" $varLines $varCols 4  \
+            1   "Select a different Disk"   \
+            2   "Initialize the Disk"       \
+            3   "Partition the Disk"        \
+            4   "Mount a Partition"         \
+                                            \
+            3>&1 1>&2 2>&3)"
+    
+        case "$varMenuChoice" in
+            1)  doSelectDisk    ;;
+            2)  doInitDisk      ;;
+            3)  doPartDisk      ;;
+            4)  doMountPart     ;;
+            *)  return          ;;
+        esac
+    done
+
+}
+###
+
+#-----------------------#
+#-| Argument Handling |-#
+#-----------------------#
+
+while getopts "sv" varArgument; do
+
+    case "$varArgument" in
+        s)  # Skip Safeties
+            echoBlue "Skipping Safety/Compatability Checking!"
+            echoRed "Use with Caution!"
+            varSkipSafety=true
+            ;;
+
+        v)  # Verbose
+            echoBlue "Enabling Verbosity"
+            set -o xtrace
+            ;;
+
+        *)  # Catch Arg
+            die "Unknown argument. \"$varArgument\""
+            ;;
+    esac
+done
+
+#---------------------------------#
+#-| Safety/Compatability Checks |-#
+#---------------------------------#
+
+if [ "$varSkipSafety" != true ]; then
+   safetyUEFI
+   safetyInternet
+   safetyHaveDialog
+fi
+
+#----------#
+#-| Main |-#
+#----------#
+
+menuPrepareDisks
+
+echoGreen "! DONE !"
+
