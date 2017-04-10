@@ -322,9 +322,62 @@ function doPartDisk () {
 }
 ###
 
+function fsMake () {
+    
+    if ($1 $varSelectedDisk$varPartNumber); then
+        dialog --title "Make Filesystem" --msgbox "Filesystem $2 Successfully Created on \!$varSelectedDisk$varPartNumber\"!"
+    else
+        die "Failure during \"mkfs.$1 $varSelectedDisk$varPartNumber\"!"
+    fi
+
+}
+
 # Make a filesystem on a partition
 function doMakefsPart () {
-    die "DoMakefsPart"
+
+    varPartNumber=1
+    
+    while true; do
+        varMenuChoice="$(dialog --title "Make Filesystem" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "Select a Filesystem." $varLines $varCols 6 \
+            1   "Fat32"     \
+            2   "EXT3"      \
+            3   "EXT4"      \
+            4   "BTRFS"     \
+            5   "XFS"       \
+            6   "MSDOS"     \
+            3>&1 1>&2 2>&3)"
+        
+        if [ "$?" == 1 ]; then return; fi;
+
+        varPartNumber="$(dialog --title "Make Filesystem" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "Select a Partition." $varLines $varCols $(($varLines - 8)) $(selectPartNumber) 3>&1 1>&2 2>&3)"
+
+        if [ "$?" == 1 ]; then return; fi;
+
+        
+        case "$varMenuChoice" in
+            1)  fsMake 'mkfs.vfat -F32 -v' 'Fat32'
+                ;;
+
+            2)  fsMake 'mkfs.ext3 -v' 'EXT3'
+                ;;
+
+            3)  fsMake 'mkfs.ext4 -v' 'EXT4'
+                ;;
+
+            4)  fsMake 'mkfs.btrfs' 'Btrfs'
+                ;;
+
+            5)  fsMake 'mkfs.xfs' 'XFS'
+                ;;
+
+            6)  fsMake 'mkfs.msdos -v' 'MSDOS'
+                ;;
+        esac
+
+    done
+
 }
 ###
 
@@ -341,7 +394,7 @@ function menuPrepareDisks () {
 
     while true; do
         varMenuChoice="$(dialog --title "Prepare Disks" --notags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
-            "What would you like to do to \"$varSelectedDisk\"?" $varLines $varCols 4  \
+            "What would you like to do to \"$varSelectedDisk\"?" $varLines $varCols 5 \
             1   "Select a different Disk"   \
             2   "Initialize the Disk"       \
             3   "Partition the Disk"        \
