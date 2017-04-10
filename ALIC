@@ -5,7 +5,7 @@
 # A R C H  L I N U X  I N S T A L L E R  &  C O N F I G U R A T O R
 # 
 # Author:   Keith King
-# Version:  0.2
+# Version:  0.3
 # 
 #
 # Copyright (C) 2017  Keith King
@@ -325,7 +325,7 @@ function doPartDisk () {
 function fsMake () {
     
     if ($1 $varSelectedDisk$varPartNumber); then
-        dialog --title "Make Filesystem" --msgbox "Filesystem $2 Successfully Created on \!$varSelectedDisk$varPartNumber\"!"
+        dialog --title "Make Filesystem" --msgbox "Filesystem $2 Successfully Created on \!$varSelectedDisk$varPartNumber\"!" $varLines $varCols
     else
         die "Failure during \"mkfs.$1 $varSelectedDisk$varPartNumber\"!"
     fi
@@ -383,7 +383,31 @@ function doMakefsPart () {
 
 # Mount a Partition
 function doMountPart () {
-    die "DoMountPart"
+
+    varPartNumber=1
+    varHierarchyLocation='/'
+
+    while true; do
+    
+        varPartNumber="$(dialog --title "Mount Partition" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "What Partition would you like to mount?" $varLines $varCols $(($varLines - 8)) $(selectPartNumber) 3>&1 1>&2 2>&3)"
+        
+        if [ "$?" == 1 ]; then return; fi;
+
+        varHierarchyLocation="$(dialog --title "Mount Partition" --ok-label "Go" --cancel-label "Go Back" --backtitle "$varMe" --inputbox \
+            "What part of the new system will this partition represent?" $varLines $varCols "$varHierarchyLocation" 3>&1 1>&2 2>&3)"
+
+        if [ "$?" == 1 ]; then return; fi;
+        
+        if (mkdir -pv "/mnt$varHierarchyLocation") && (mount -v $varSelectedDisk$varPartNumber "/mnt$varHierarchyLocation"); then
+            dialog --title "Mount Partition" --backtitle "$varMe" --msgbox "Partition \"$varSelectedDisk$varPartNumber\" Successfully mounted at \"/mnt$varHierarchyLocation\"." \
+                $varLines $varCols
+        else
+            die "Failure :("
+        fi
+
+    done
+
 }
 ###
 
