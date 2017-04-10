@@ -345,7 +345,8 @@ function menuPrepareDisks () {
             1   "Select a different Disk"   \
             2   "Initialize the Disk"       \
             3   "Partition the Disk"        \
-            4   "Mount a Partition"         \
+            4   "Make a Filesystem"        \
+            5   "Mount A Partition"         \
                                             \
             3>&1 1>&2 2>&3)"
     
