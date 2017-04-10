@@ -233,7 +233,53 @@ function partRm () {
 
 # Set a Partition Flag
 function partSet () {
-   die "PartSet" 
+
+    varPartNumber=1
+    varFlag="boot"
+    varState="on"
+   
+    while true; do
+        
+        varMenuChoice="$(dialog --title "Set Flag" --no-tags --ok-label "Select" --extra-button --extra-label "Continue" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "Select an option." $varLines $varCols 3    \
+            1   "Partition Number: $varPartNumber"      \
+            2   "Flag: $varFlag"                        \
+            3   "State: $varState"                      \
+            3>&1 1>&2 2>&3)"
+
+        if [ "$?" == 3 ]; then
+
+            if (parted -sa opt $varSelectedDisk set $varPartNumber $varFlag $varState); then
+                dialog --title "Set Flag" --msgbox "Operation \"Set $varPartNumber $varFlag $varState\" completed successfully!" $varLines $varCols
+            else
+                die "Error during Flag set"
+            fi
+
+        else
+            
+            case "$varMenuChoice" in
+                1)
+                    varPartNumber="$(dialog --title "Select Partition" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+                        "Select a Partition" $varLines $varCols $(($varLines - 8)) $(selectPartNumber) 3>&1 1>&2 2>&3)"
+                    ;;
+    
+                2)  
+                    varFlag="$(dialog --title "Set Flag" --ok-label "Set" --cancel-label "Go Back" --backtitle "$varMe" --inputbox \
+                        "What flag would you like to modify?" $varLines $varCols "$varFlag" 3>&1 1>&2 2>&3)"
+                    ;;
+    
+                3)  
+                    varState="$(dialog --title "Set State" --ok-label "Set" --cancel-label "Go Back" --backtitle "$varMe" --inputbox \
+                        "What state is the \"$varFlag\" going to be set to?" $varLines $varCols "$varState" 3>&1 1>&2 2>&3)"
+                    ;;
+    
+                *) return   ;;
+            esac
+
+        fi
+
+    done
+
 }
 ###
 
@@ -257,6 +303,12 @@ function doPartDisk () {
         esac
     done
 
+}
+###
+
+# Make a filesystem on a partition
+function doMakefsPart () {
+    die "DoMakefsPart"
 }
 ###
 
@@ -285,7 +337,8 @@ function menuPrepareDisks () {
             1)  doSelectDisk    ;;
             2)  doInitDisk      ;;
             3)  doPartDisk      ;;
-            4)  doMountPart     ;;
+            4)  doMakefsPart    ;;
+            5)  doMountPart     ;;
             *)  return          ;;
         esac
     done
