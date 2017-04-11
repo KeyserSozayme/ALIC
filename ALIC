@@ -35,18 +35,9 @@ set -o nounset
 declare varMe="$(basename -s .sh $0)"
 declare varSupportedDrives="^sd\|^hd\|^xvd"
 declare -a listOfDisks=($(lsblk | grep "$varSupportedDrives" | awk '{print $1}'))
-declare -a listofPartitions
 declare varRequiredPackages="base base-devel vim"
 
-declare varPartNumber=1
-declare varLabel="Partition"
-declare varStart="0%"
-declare varEnd="50%"
-
 declare varSkipSafety=false
-declare varArgument
-declare varAnswer
-declare varMenuChoice
 
 declare varLines="$((`tput lines` / 3))"
 declare varCols="80"
@@ -175,6 +166,11 @@ function selectPartNumber () {
 
 # Add a Partition
 function partAdd () {
+
+    declare varPartNumber=1
+    declare varLabel="Partition"
+    declare varStart="0%"
+    declare varEnd="50%"
 
     while true; do
         varMenuChoice="$(dialog --title "Add a Partition" --no-tags --ok-label "Select" --extra-button --extra-label "Add Partition" --cancel-label "Go Back" --backtitle "$varMe" \
@@ -325,7 +321,7 @@ function doPartDisk () {
 function fsMake () {
     
     if ($1 $varSelectedDisk$varPartNumber); then
-        dialog --title "Make Filesystem" --msgbox "Filesystem $2 Successfully Created on \!$varSelectedDisk$varPartNumber\"!" $varLines $varCols
+        dialog --title "Make Filesystem" --msgbox "Filesystem $2 Successfully Created on \"$varSelectedDisk$varPartNumber\"!" $varLines $varCols
     else
         die "Failure during \"mkfs.$1 $varSelectedDisk$varPartNumber\"!"
     fi
@@ -478,7 +474,26 @@ fi
 #-| Main |-#
 #----------#
 
-menuPrepareDisks
+while true; do
+    
+    varMenuChoice="$(dialog --title "ALIC" --no-tags --ok-label "Select" --cancel-label "Exit" --backtitle "$varMe" --menu \
+        "What would you like to do?" $varLines $varCols 6 \
+        1   "Prepare Disks"     \
+        2   "set Hostname"      \
+        3   "Set Locale"        \
+        4   "Set Time"          \
+        5   "Enable Networking" \
+        6   "Set Bootloader"    \
+        3>&1 1>&2 2>&3)"
+
+    if [ "$?" == 1 ]; then break; fi;
+
+    case "$varMenuChoice" in
+        1)  menuPrepareDisks        ;;
+        *)  die "Not Implemented"   ;;
+    esac
+
+done
 
 echoGreen "! DONE !"
 
