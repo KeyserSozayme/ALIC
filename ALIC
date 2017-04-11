@@ -32,10 +32,12 @@ set -o nounset
 #-| Variables |-#
 #---------------#
 
-declare varMe="$(basename -s .sh $0)"
+#declare varMe="$(basename -s .sh $0)"
+declare varMe="Arch Linux Installer & Configurator"
 declare varSupportedDrives="^sd\|^hd\|^xvd"
 declare -a listOfDisks=($(lsblk | grep "$varSupportedDrives" | awk '{print $1}'))
 declare varRequiredPackages="base base-devel vim"
+declare optimizePacLock="/tmp/optimizePacLock.lck"
 
 declare varSkipSafety=false
 
@@ -108,6 +110,31 @@ function safetyHaveDialog () {
 }
 ###
 
+# Optimize Pacman
+function optimizePacman () {
+    
+    if [ ! -f "$optimizePacLock" ]; then
+        
+        if (dialog --title "Optimize Pacman" --backtitle "$varMe" --yesno "Pacman does not appear to be optimized. Would you like to do that now?" 7 50 3>&1 1>&2 2>&3); then
+            
+            echoBlue "Updating Pacman Database..."
+            pacman -Syy
+            
+            echoBlue "Optimizing Mirrors..."
+            pacman -S --noconfirm reflector
+            
+            if !(reflector --verbose --latest 200 --protocol https --sort rate --save /etc/pacman.d/mirrorlist) then
+                die "Something Went Wrong!"
+            fi
+
+            touch "$optimizePacLock"
+
+        fi
+
+    fi
+
+}
+###
 # Get Disk Size
 function getDiskSize () { echo "$(lsblk | grep "^$1" | awk '{print $4}')"; }
 ###
@@ -468,6 +495,7 @@ if [ "$varSkipSafety" != true ]; then
    safetyUEFI
    safetyInternet
    safetyHaveDialog
+   optimizePacman
 fi
 
 #----------#
