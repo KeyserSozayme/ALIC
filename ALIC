@@ -5,8 +5,24 @@
 # A R C H  L I N U X  I N S T A L L E R  &  C O N F I G U R A T O R
 # 
 # Author:   Keith King
-# Version:  0.1
+# Version:  1.0
 # 
+#
+# Copyright (C) 2017  Keith King
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
 ##
 
 set -o noclobber
@@ -16,21 +32,14 @@ set -o nounset
 #-| Variables |-#
 #---------------#
 
-declare varMe="$(basename -s .sh $0)"
+declare varMeShort="$(basename -s .sh $0)"
+declare varMe="Arch Linux Installer & Configurator"
 declare varSupportedDrives="^sd\|^hd\|^xvd"
 declare -a listOfDisks=($(lsblk | grep "$varSupportedDrives" | awk '{print $1}'))
-declare -a listofPartitions
-declare varRequiredPackages="base base-devel vim"
-
-declare varPartNumber=1
-declare varLabel="Partition"
-declare varStart="0%"
-declare varEnd="50%"
+declare varInitPackages="base base-devel vim"
+declare optimizePacLock="/tmp/optimizePacLock.lck"
 
 declare varSkipSafety=false
-declare varArgument
-declare varAnswer
-declare varMenuChoice
 
 declare varLines="$((`tput lines` / 3))"
 declare varCols="80"
@@ -40,15 +49,15 @@ declare varCols="80"
 #---------------#
 
 # Echo in Red
-function echoRed () { echo -e "\033[1;96m$varMe: \033[1;31m$@\033[0m"; }
+function echoRed () { echo -e "\033[1;96m$varMeShort: \033[1;31m$@\033[0m"; }
 ###
 
 # Echo in Blue
-function echoBlue () { echo -e "\033[1;96m$varMe: \033[1;34m$@\033[0m"; }
+function echoBlue () { echo -e "\033[1;96m$varMeShort: \033[1;34m$@\033[0m"; }
 ###
 
 # Echo in Green
-function echoGreen () { echo -e "\033[1;96m$varMe: \033[1;32m$@\033[0m"; }
+function echoGreen () { echo -e "\033[1;96m$varMeShort: \033[1;32m$@\033[0m"; }
 ###
 
 # Quit and Throw an Error
@@ -58,6 +67,15 @@ function die () {
     echoRed "Exiting..."
     exit 1
 
+}
+###
+
+# Are You Sure Dialog
+function areYouSure () {
+    
+    dialog --title "Are You Sure?" --backtitle "$varMe" --yesno "$1" 8 60
+    return $?
+    
 }
 ###
 
@@ -101,6 +119,31 @@ function safetyHaveDialog () {
 }
 ###
 
+# Optimize Pacman
+function optimizePacman () {
+    
+    if [ ! -f "$optimizePacLock" ]; then
+        
+        if (dialog --title "Optimize Pacman" --backtitle "$varMe" --yesno "Pacman does not appear to be optimized. Would you like to do that now?" 7 50 3>&1 1>&2 2>&3); then
+            
+            echoBlue "Updating Pacman Database..."
+            pacman -Syy
+            
+            echoBlue "Optimizing Mirrors..."
+            pacman -S --noconfirm reflector
+            
+            if !(reflector --verbose --latest 200 --protocol https --sort rate --save /etc/pacman.d/mirrorlist) then
+                die "Something Went Wrong!"
+            fi
+
+            touch "$optimizePacLock"
+
+        fi
+
+    fi
+
+}
+###
 # Get Disk Size
 function getDiskSize () { echo "$(lsblk | grep "^$1" | awk '{print $4}')"; }
 ###
@@ -148,17 +191,24 @@ function doInitDisk () {
 # Function to select a Partition Number
 function selectPartNumber () {
 
-   listOfPartitions=($(parted -s $varSelectedDisk print | awk '{print $1}' | tail -n +8))
+    if [ "${1:-unset}" == "setdisk" ]; then doSelectDisk; fi;
 
-   for partition in "${listOfPartitions[@]}"; do
-       echo -e "$partition $varSelectedDisk$partition:$(parted -s $varSelectedDisk print | awk '{print $4}' | tail -n +8 | sed -n "$partition p")"
-   done
+    listOfPartitions=($(parted -s $varSelectedDisk print | awk '{print $1}' | tail -n +8))
+
+    for partition in "${listOfPartitions[@]}"; do
+        echo -e "$partition $varSelectedDisk$partition:$(parted -s $varSelectedDisk print | awk '{print $4}' | tail -n +8 | sed -n "$partition p")"
+    done
 
 }
 ###
 
 # Add a Partition
 function partAdd () {
+
+    declare varPartNumber=1
+    declare varLabel="Partition"
+    declare varStart="0%"
+    declare varEnd="50%"
 
     while true; do
         varMenuChoice="$(dialog --title "Add a Partition" --no-tags --ok-label "Select" --extra-button --extra-label "Add Partition" --cancel-label "Go Back" --backtitle "$varMe" \
@@ -233,7 +283,53 @@ function partRm () {
 
 # Set a Partition Flag
 function partSet () {
-   die "PartSet" 
+
+    varPartNumber=1
+    varFlag="boot"
+    varState="on"
+   
+    while true; do
+        
+        varMenuChoice="$(dialog --title "Set Flag" --no-tags --ok-label "Select" --extra-button --extra-label "Continue" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "Select an option." $varLines $varCols 3    \
+            1   "Partition Number: $varPartNumber"      \
+            2   "Flag: $varFlag"                        \
+            3   "State: $varState"                      \
+            3>&1 1>&2 2>&3)"
+
+        if [ "$?" == 3 ]; then
+
+            if (parted -sa opt $varSelectedDisk set $varPartNumber $varFlag $varState); then
+                dialog --title "Set Flag" --msgbox "Operation \"Set $varPartNumber $varFlag $varState\" completed successfully!" $varLines $varCols
+            else
+                die "Error during Flag set"
+            fi
+
+        else
+            
+            case "$varMenuChoice" in
+                1)
+                    varPartNumber="$(dialog --title "Select Partition" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+                        "Select a Partition" $varLines $varCols $(($varLines - 8)) $(selectPartNumber) 3>&1 1>&2 2>&3)"
+                    ;;
+    
+                2)  
+                    varFlag="$(dialog --title "Set Flag" --ok-label "Set" --cancel-label "Go Back" --backtitle "$varMe" --inputbox \
+                        "What flag would you like to modify?" $varLines $varCols "$varFlag" 3>&1 1>&2 2>&3)"
+                    ;;
+    
+                3)  
+                    varState="$(dialog --title "Set State" --ok-label "Set" --cancel-label "Go Back" --backtitle "$varMe" --inputbox \
+                        "What state is the \"$varFlag\" going to be set to?" $varLines $varCols "$varState" 3>&1 1>&2 2>&3)"
+                    ;;
+    
+                *) return   ;;
+            esac
+
+        fi
+
+    done
+
 }
 ###
 
@@ -260,9 +356,92 @@ function doPartDisk () {
 }
 ###
 
+function fsMake () {
+    
+    if ($1 $varSelectedDisk$varPartNumber); then
+        dialog --title "Make Filesystem" --msgbox "Filesystem $2 Successfully Created on \"$varSelectedDisk$varPartNumber\"!" $varLines $varCols
+    else
+        die "Failure during \"mkfs.$1 $varSelectedDisk$varPartNumber\"!"
+    fi
+
+}
+
+# Make a filesystem on a partition
+function doMakefsPart () {
+
+    varPartNumber=1
+    
+    while true; do
+        varMenuChoice="$(dialog --title "Make Filesystem" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "Select a Filesystem." $varLines $varCols 6 \
+            1   "Fat32"     \
+            2   "EXT3"      \
+            3   "EXT4"      \
+            4   "BTRFS"     \
+            5   "XFS"       \
+            6   "MSDOS"     \
+            3>&1 1>&2 2>&3)"
+        
+        if [ "$?" == 1 ]; then return; fi;
+
+        varPartNumber="$(dialog --title "Make Filesystem" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "Select a Partition." $varLines $varCols $(($varLines - 8)) $(selectPartNumber) 3>&1 1>&2 2>&3)"
+
+        if [ "$?" == 1 ]; then return; fi;
+
+        
+        case "$varMenuChoice" in
+            1)  fsMake 'mkfs.vfat -F32 -v' 'Fat32'
+                ;;
+
+            2)  fsMake 'mkfs.ext3 -v' 'EXT3'
+                ;;
+
+            3)  fsMake 'mkfs.ext4 -v' 'EXT4'
+                ;;
+
+            4)  fsMake 'mkfs.btrfs' 'Btrfs'
+                ;;
+
+            5)  fsMake 'mkfs.xfs' 'XFS'
+                ;;
+
+            6)  fsMake 'mkfs.msdos -v' 'MSDOS'
+                ;;
+        esac
+
+    done
+
+}
+###
+
 # Mount a Partition
 function doMountPart () {
-    die "DoMountPart"
+
+    varPartNumber=1
+    varHierarchyLocation='/'
+
+    while true; do
+    
+        varPartNumber="$(dialog --title "Mount Partition" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "What Partition would you like to mount?" $varLines $varCols $(($varLines - 8)) $(selectPartNumber) 3>&1 1>&2 2>&3)"
+        
+        if [ "$?" == 1 ]; then return; fi;
+
+        varHierarchyLocation="$(dialog --title "Mount Partition" --ok-label "Go" --cancel-label "Go Back" --backtitle "$varMe" --inputbox \
+            "What part of the new system will this partition represent?" $varLines $varCols "$varHierarchyLocation" 3>&1 1>&2 2>&3)"
+
+        if [ "$?" == 1 ]; then return; fi;
+        
+        if (mkdir -pv "/mnt$varHierarchyLocation") && (mount -v $varSelectedDisk$varPartNumber "/mnt$varHierarchyLocation"); then
+            dialog --title "Mount Partition" --backtitle "$varMe" --msgbox "Partition \"$varSelectedDisk$varPartNumber\" Successfully mounted at \"/mnt$varHierarchyLocation\"." \
+                $varLines $varCols
+        else
+            die "Failure :("
+        fi
+
+    done
+
 }
 ###
 
@@ -273,11 +452,12 @@ function menuPrepareDisks () {
 
     while true; do
         varMenuChoice="$(dialog --title "Prepare Disks" --notags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
-            "What would you like to do to \"$varSelectedDisk\"?" $varLines $varCols 4  \
+            "What would you like to do to \"$varSelectedDisk\"?" $varLines $varCols 5 \
             1   "Select a different Disk"   \
             2   "Initialize the Disk"       \
             3   "Partition the Disk"        \
-            4   "Mount a Partition"         \
+            4   "Make a Filesystem"        \
+            5   "Mount A Partition"         \
                                             \
             3>&1 1>&2 2>&3)"
     
@@ -285,10 +465,188 @@ function menuPrepareDisks () {
             1)  doSelectDisk    ;;
             2)  doInitDisk      ;;
             3)  doPartDisk      ;;
-            4)  doMountPart     ;;
+            4)  doMakefsPart    ;;
+            5)  doMountPart     ;;
             *)  return          ;;
         esac
     done
+
+}
+###
+
+# Set the bootloader for the new system
+function setBootloader () {
+   
+    varBootFile="/mnt/boot/loader/entries/arch.conf"
+    varRootPart="/dev/$(lsblk | grep -E '(^|\s)/mnt($|\s)' | awk '{print $1}' | sed 's:[^a-zA-Z0-9]::g')"
+
+    if !(arch-chroot /mnt bootctl install); then die "Bootloader installation failed!"; fi;
+
+    echo -e "title \t\tArch Linux"                                               > $varBootFile
+    echo -e "linux \t\t/vmlinuz-linux"                                          >> $varBootFile
+    echo -e "initrd \t\t/initramfs-linux.img"                                   >> $varBootFile
+    echo -e "options \troot=$(blkid -o export $varRootPart | grep PARTUUID) rw" >> $varBootFile
+
+    if [ ! -f $varBootFile ]; then die "Bootloader Installation failed! Check $varBootFile for correct configuration!"; fi;
+
+}
+###
+
+# Function for Pacstrapping Base System
+function pacstrapBase () {
+
+    optimizePacman
+    
+    varPacstrapPackages="$(dialog --title "Pacstrap Base" --ok-label "Pacstrap" --cancel-label "Go Back" --backtitle "$varMe" --inputbox \
+        "What packages would you like to pacstrap?" $varLines $varCols "$varInitPackages " 3>&1 1>&2 2>&3)"
+
+    if [ "$?" == 1 ]; then return; fi;
+
+    if (pacstrap /mnt $varPacstrapPackages); then
+
+        genfstab -U /mnt > /mnt/etc/fstab
+        setBootloader
+        dialog --title "Pacstrap Packages" --msgbox "Pacstrap of \"$varPacstrapPackages\" completed!" $varLines $varCols
+
+    else
+        die "Something went wrong during Pacstrap!"
+    fi
+
+}
+###
+
+# Set the Hostnmae
+function setHostname () {
+    
+    varHostname="$(dialog --title "Set Hostname" --backtitle "$varMe" --inputbox "What would you like the hostname of the new system to be?" $varLines $varCols 3>&1 1>&2 2>&3)"
+
+    if [ "$?" == 1 ]; then return; fi;
+
+    if (areYouSure "Are you sure you would like the hostnmae to be \"$varHostname\"?"); then
+        echoBlue "Setting Hostname"
+
+        echo "$varHostname" > /mnt/etc/hostname
+        echo -e "127.0.0.1 \tlocalhost.localdomain \t$varHostname" >> /mnt/etc/hosts
+    else
+        varHostname=''
+        return
+    fi
+
+}
+###
+
+# Set the locale of the new system
+function setLocale () {
+    die "Not Implemented"
+}
+###
+
+# Set the clock for the new system
+function setTime () {
+    die "Not Implemented"
+}
+###
+
+# Function to select a network interface
+function selectInterface () {
+    
+    listOfInterfaces=($(ip link | grep "^[0-9]" | grep -iv "loopback" | awk '{print $2}' | sed 's/://'))
+
+    for int in "${listOfInterfaces[@]}"; do
+        echo -e "$int $int"
+    done
+
+}
+###
+
+# Function to set a static IP Address
+function setStaticIP () {
+
+    varNetFile="/mnt/etc/netctl/$varInterface"
+
+    varMenuChoice=($(dialog --title "Static IP" --ok-label "Go" --cancel-label "Go Back" --backtitle "$varMe" --form \
+        "Set your Static IP here" $varLines $varCols 4 \
+        "IP Address"    1 1 "" 1 25 25 30 \
+        "Mask Length"   2 1 "" 2 25 25 30 \
+        "Gateway"       3 1 "" 3 25 25 30 \
+        "DNS Server"    4 1 "" 4 25 25 30 3>&1 1>&2 2>&3))
+    if [ "$?" == 1]; then return; fi;
+    
+    varCIDR_IP="'${varMenuChoice[0]}/${varMenuChoice[1]}'"
+    varGateway="'${varMenuChoice[2]}'"
+    varDNS="'${varMenuChoice[3]}'"
+
+    echo "Description='Configuration for $varInterface gererated by ALIC.'"  > $varNetFile
+    echo "Interface=$varInterface"                                          >> $varNetFile
+    echo "Connection=ethernet"                                              >> $varNetFile
+    echo "IP=static"                                                        >> $varNetFile
+    echo "Address=($varCIDR_IP)"                                            >> $varNetFile
+    echo "Gateway=($varGateway)"                                            >> $varNetFile
+    echo "DNS=($varDNS)"                                                    >> $varNetFile
+
+    if (arch-chroot /mnt netctl enable $varInterface); then
+        dialog --title "Static IP" --backtitle "$varMe" --msgbox "Interface $varInterface successfully configured." $varLines $varCols
+    else
+        die "There was an error"
+    fi
+
+}
+###
+
+# Function to set DHCP
+function setDHCP () {
+    
+   if (arch-chroot /mnt systemctl enable dhcpcd@$varInterface.service); then
+       dialog --title "Configure Networking" --msgbox "$varInterface will request an address at next boot of the new system!" $varLines $varCols
+    else
+        die "Enabling DHCPCD Failed on $varInterface"
+    fi
+
+}
+###
+
+# Configure Networking in the new system
+function confNetworking () {
+    
+    while true; do
+
+        varMenuChoice="$(dialog --title "Configure Networking" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "What would you like to do?" $varLines $varCols 2 \
+            1   "Set a static IP Address"           \
+            2   "Configure DHCP on an interface"    \
+            3>&1 1>&2 2>&3)"
+
+        if [ "$?" == 1 ]; then return; fi;
+
+        varInterface="$(dialog --title "Configure Networking" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "Select the Netork Interface you would like to work on." $varLines $varCols $(($varLines - 8)) $(selectInterface) 3>&1 1>&2 2>&3)"
+
+        if [ "$?" == 1 ]; then return; fi;
+
+        case "$varMenuChoice" in
+            1)  setStaticIP ;;
+            2)  setDHCP     ;;
+        esac
+
+    done
+
+}
+###
+
+# Set the bootloader for the new system
+function setBootloader () {
+   
+    varBootFile="/mnt/boot/loader/entries/arch.conf"
+    varRootPart="/dev/$(lsblk | grep -E '(^|\s)/mnt($|\s)' | awk '{print $1}' | sed 's:[^a-zA-Z0-9]::g')"
+
+    if !(arch-chroot /mnt bootctl install); then die "Bootloader installation failed!"; fi;
+
+    echo -e "title \t\tArch Linux"                                               > $varBootFile
+    echo -e "linux \t\t/vmlinuz-linux"                                          >> $varBootFile
+    echo -e "initrd \t\t/initramfs-linux.img"                                   >> $varBootFile
+    echo -e "options \troot=$(blkid -o export $varRootPart | grep PARTUUID) rw" >> $varBootFile
+
+    if [ ! -f $varBootFile ]; then die "Bootloader Installation failed! Check $varBootFile for correct configuration!"; fi;
 
 }
 ###
@@ -325,13 +683,37 @@ if [ "$varSkipSafety" != true ]; then
    safetyUEFI
    safetyInternet
    safetyHaveDialog
+   optimizePacman
 fi
 
 #----------#
 #-| Main |-#
 #----------#
 
-menuPrepareDisks
+while true; do
+    
+    varMenuChoice="$(dialog --title "ALIC" --no-tags --ok-label "Select" --cancel-label "Exit" --backtitle "$varMe" --menu \
+        "What would you like to do?" $varLines $varCols 6 \
+        1   "Prepare Disks"     \
+        2   "Pacstrap Base"     \
+        3   "Set Hostname"      \
+        4   "Set Locale"        \
+        5   "Set Time"          \
+        6   "Enable Networking" \
+        3>&1 1>&2 2>&3)"
+
+    if [ "$?" == 1 ]; then break; fi;
+
+    case "$varMenuChoice" in
+        1)  menuPrepareDisks        ;;
+        2)  pacstrapBase            ;;
+        3)  setHostname             ;;
+        4)  setLocale               ;;
+        5)  setTime                 ;;
+        6)  confNetworking          ;;
+    esac
+
+done
 
 echoGreen "! DONE !"
 
