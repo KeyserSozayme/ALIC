@@ -32,7 +32,7 @@ set -o nounset
 #-| Variables |-#
 #---------------#
 
-#declare varMe="$(basename -s .sh $0)"
+declare varMeShort="$(basename -s .sh $0)"
 declare varMe="Arch Linux Installer & Configurator"
 declare varSupportedDrives="^sd\|^hd\|^xvd"
 declare -a listOfDisks=($(lsblk | grep "$varSupportedDrives" | awk '{print $1}'))
@@ -49,15 +49,15 @@ declare varCols="80"
 #---------------#
 
 # Echo in Red
-function echoRed () { echo -e "\033[1;96m$varMe: \033[1;31m$@\033[0m"; }
+function echoRed () { echo -e "\033[1;96m$varMeShort: \033[1;31m$@\033[0m"; }
 ###
 
 # Echo in Blue
-function echoBlue () { echo -e "\033[1;96m$varMe: \033[1;34m$@\033[0m"; }
+function echoBlue () { echo -e "\033[1;96m$varMeShort: \033[1;34m$@\033[0m"; }
 ###
 
 # Echo in Green
-function echoGreen () { echo -e "\033[1;96m$varMe: \033[1;32m$@\033[0m"; }
+function echoGreen () { echo -e "\033[1;96m$varMeShort: \033[1;32m$@\033[0m"; }
 ###
 
 # Quit and Throw an Error
@@ -67,6 +67,15 @@ function die () {
     echoRed "Exiting..."
     exit 1
 
+}
+###
+
+# Are You Sure Dialog
+function areYouSure () {
+    
+    dialog --title "Are You Sure?" --backtitle "$varMe" --yesno "$1" 8 60
+    return $?
+    
 }
 ###
 
@@ -182,11 +191,13 @@ function doInitDisk () {
 # Function to select a Partition Number
 function selectPartNumber () {
 
-   listOfPartitions=($(parted -s $varSelectedDisk print | awk '{print $1}' | tail -n +8))
+    if [ "${1:-unset}" == "setdisk" ]; then doSelectDisk; fi;
 
-   for partition in "${listOfPartitions[@]}"; do
-       echo -e "$partition $varSelectedDisk$partition:$(parted -s $varSelectedDisk print | awk '{print $4}' | tail -n +8 | sed -n "$partition p")"
-   done
+    listOfPartitions=($(parted -s $varSelectedDisk print | awk '{print $1}' | tail -n +8))
+
+    for partition in "${listOfPartitions[@]}"; do
+        echo -e "$partition $varSelectedDisk$partition:$(parted -s $varSelectedDisk print | awk '{print $4}' | tail -n +8 | sed -n "$partition p")"
+    done
 
 }
 ###
@@ -463,6 +474,24 @@ function menuPrepareDisks () {
 }
 ###
 
+# Set the bootloader for the new system
+function setBootloader () {
+   
+    varBootFile="/mnt/boot/loader/entries/arch.conf"
+    varRootPart="/dev/$(lsblk | grep -E '(^|\s)/mnt($|\s)' | awk '{print $1}' | sed 's:[^a-zA-Z0-9]::g')"
+
+    if !(arch-chroot /mnt bootctl install); then die "Bootloader installation failed!" fi;
+
+    echo -e "title \t\tArch Linux"                                               > $varBootFile
+    echo -e "linux \t\t/vmlinuz-linux"                                          >> $varBootFile
+    echo -e "initrd \t\t/initramfs-linux.img"                                   >> $varBootFile
+    echo -e "options \troot=$(blkid -o export $varRootPart | grep PARTUUID) rw" >> $varBootFile
+
+    if [ ! -f $varBootFile ]; then die "Bootloader Installation failed! Check $varBootFile for correct configuration!"; fi;
+
+}
+###
+
 # Function for Pacstrapping Base System
 function pacstrapBase () {
 
@@ -474,10 +503,150 @@ function pacstrapBase () {
     if [ "$?" == 1 ]; then return; fi;
 
     if (pacstrap /mnt $varPacstrapPackages); then
+
+        genfstab -U /mnt > /mnt/etc/fstab
+        setBootloader
         dialog --title "Pacstrap Packages" --msgbox "Pacstrap of \"$varPacstrapPackages\" completed!" $varLines $varCols
+
     else
         die "Something went wrong during Pacstrap!"
     fi
+
+}
+###
+
+# Set the Hostnmae
+function setHostname () {
+    
+    varHostname="$(dialog --title "Set Hostname" --backtitle "$varMe" --inputbox "What would you like the hostname of the new system to be?" $varLines $varCols 3>&1 1>&2 2>&3)"
+
+    if [ "$?" == 1 ]; then return; fi;
+
+    if (areYouSure "Are you sure you would like the hostnmae to be \"$varHostname\"?"); then
+        echoBlue "Setting Hostname"
+
+        echo "$varHostname" > /mnt/etc/hostname
+        echo -e "127.0.0.1 \tlocalhost.localdomain \t$varHostname" >> /mnt/etc/hosts
+    else
+        varHostname=''
+        return
+    fi
+
+}
+###
+
+# Set the locale of the new system
+function setLocale () {
+    die "Not Implemented"
+}
+###
+
+# Set the clock for the new system
+function setTime () {
+    die "Not Implemented"
+}
+###
+
+# Function to select a network interface
+function selectInterface () {
+    
+    listOfInterfaces=($(ip link | grep "^[0-9]" | grep -iv "loopback" | awk '{print $2}' | sed 's/://'))
+
+    for int in "${listOfInterfaces[@]}"; do
+        echo -e "$int $int"
+    done
+
+}
+###
+
+# Function to set a static IP Address
+function setStaticIP () {
+
+    varNetFile="/mnt/etc/netctl/$varInterface"
+
+    varMenuChoice=($(dialog --title "Static IP" --ok-label "Go" --cancel-label "Go Back" --backtitle "$varMe" --form \
+        "Set your Static IP here" $varLines $varCols 4 \
+        "IP Address"    1 1 "" 1 25 25 30 \
+        "Mask Length"   2 1 "" 2 25 25 30 \
+        "Gateway"       3 1 "" 3 25 25 30 \
+        "DNS Server"    4 1 "" 4 25 25 30 3>&1 1>&2 2>&3))
+    if [ "$?" == 1]; then return; fi;
+    
+    varCIDR_IP="'${varMenuChoice[0]}/${varMenuChoice[1]}'"
+    varGateway="'${varMenuChoice[2]}'"
+    varDNS="'${varMenuChoice[3]}'"
+
+    echo "Description='Configuration for $varInterface gererated by ALIC.'"  > $varNetFile
+    echo "Interface=$varInterface"                                          >> $varNetFile
+    echo "Connection=ethernet"                                              >> $varNetFile
+    echo "IP=static"                                                        >> $varNetFile
+    echo "Address=($varCIDR_IP)"                                            >> $varNetFile
+    echo "Gateway=($varGateway)"                                            >> $varNetFile
+    echo "DNS=($varDNS)"                                                    >> $varNetFile
+
+    if (arch-chroot /mnt netctl enable $varInterface); then
+        dialog --title "Static IP" --backtitle "$varMe" --msgbox "Interface $varInterface successfully configured." $varLines $varCols
+    else
+        die "There was an error"
+    fi
+
+}
+###
+
+# Function to set DHCP
+function setDHCP () {
+    
+   if (arch-chroot /mnt systemctl enable dhcpcd@$varInterface.service); then
+       dialog --title "Configure Networking" --msgbox "$varInterface will request an address at next boot of the new system!" $varLines $varCols
+    else
+        die "Enabling DHCPCD Failed on $varInterface"
+    fi
+
+}
+###
+
+# Configure Networking in the new system
+function confNetworking () {
+    
+    while true; do
+
+        varMenuChoice="$(dialog --title "Configure Networking" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "What would you like to do?" $varLines $varCols 2 \
+            1   "Set a static IP Address"           \
+            2   "Configure DHCP on an interface"    \
+            3>&1 1>&2 2>&3)"
+
+        if [ "$?" == 1 ]; then return; fi;
+
+        varInterface="$(dialog --title "Configure Networking" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --menu \
+            "Select the Netork Interface you would like to work on." $varLines $varCols $(($varLines - 8)) $(selectInterface) 3>&1 1>&2 2>&3)"
+
+        if [ "$?" == 1 ]; then return; fi;
+
+        case "$varMenuChoice" in
+            1)  setStaticIP ;;
+            2)  setDHCP     ;;
+        esac
+
+    done
+
+}
+###
+
+# Set the bootloader for the new system
+function setBootloader () {
+   
+    varBootFile="/mnt/boot/loader/entries/arch.conf"
+    varRootPart="/dev/$(lsblk | grep -E '(^|\s)/mnt($|\s)' | awk '{print $1}' | sed 's:[^a-zA-Z0-9]::g')"
+
+    if !(arch-chroot /mnt bootctl install); then die "Bootloader installation failed!" fi;
+
+    echo -e "title \t\tArch Linux"                                               > $varBootFile
+    echo -e "linux \t\t/vmlinuz-linux"                                          >> $varBootFile
+    echo -e "initrd \t\t/initramfs-linux.img"                                   >> $varBootFile
+    echo -e "options \troot=$(blkid -o export $varRootPart | grep PARTUUID) rw" >> $varBootFile
+
+    if [ ! -f $varBootFile ]; then die "Bootloader Installation failed! Check $varBootFile for correct configuration!"; fi;
 
 }
 ###
@@ -524,14 +693,13 @@ fi
 while true; do
     
     varMenuChoice="$(dialog --title "ALIC" --no-tags --ok-label "Select" --cancel-label "Exit" --backtitle "$varMe" --menu \
-        "What would you like to do?" $varLines $varCols 7 \
+        "What would you like to do?" $varLines $varCols 6 \
         1   "Prepare Disks"     \
         2   "Pacstrap Base"     \
         3   "Set Hostname"      \
         4   "Set Locale"        \
         5   "Set Time"          \
         6   "Enable Networking" \
-        7   "Set Bootloader"    \
         3>&1 1>&2 2>&3)"
 
     if [ "$?" == 1 ]; then break; fi;
@@ -539,7 +707,10 @@ while true; do
     case "$varMenuChoice" in
         1)  menuPrepareDisks        ;;
         2)  pacstrapBase            ;;
-        *)  die "Not Implemented"   ;;
+        3)  setHostname             ;;
+        4)  setLocale               ;;
+        5)  setTime                 ;;
+        6)  confNetworking          ;;
     esac
 
 done
