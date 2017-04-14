@@ -651,6 +651,32 @@ function setBootloader () {
 }
 ###
 
+# Function to unmount Partitions and Reboot
+function finish () {
+    
+    mountedParts=($(mount | grep /mnt | awk '{print $3}' | sort -r))
+
+    for part in ${mountedParts[@]}; do
+
+        if (umount $part); then
+            echoBlue "Successfully unmounted $part!"
+        else
+            die "Failure to unmount $part!"
+        fi
+
+    done
+
+    if (dialog --title "Reboot Now?" --backtitle "$varMe" --yesno "Would you like to reboot now?" $varLines $varCols); then
+        echoBlue "Rebooting in 5 seconds..."
+        sleep 5
+        reboot now
+    else
+        return
+    fi
+
+}
+###
+
 #-----------------------#
 #-| Argument Handling |-#
 #-----------------------#
@@ -700,6 +726,7 @@ while true; do
         4   "Set Locale"        \
         5   "Set Time"          \
         6   "Enable Networking" \
+        7   "Finish"            \
         3>&1 1>&2 2>&3)"
 
     if [ "$?" == 1 ]; then break; fi;
@@ -711,6 +738,7 @@ while true; do
         4)  setLocale               ;;
         5)  setTime                 ;;
         6)  confNetworking          ;;
+        7)  finish                  ;;
     esac
 
 done
