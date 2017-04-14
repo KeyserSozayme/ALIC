@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+
+##
+# 
+# .installALIC
+# 
+# Author:   Keith King
+# Version:  1.0
+# 
+#
+# Copyright (C) 2017  Keith King
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+##
+
+set -o noclobber
+set -o nounset
+
+#-----------------#
+#-| Main Script |-#
+#-----------------#
+
+varMeShort="$(basename -s .sh $0)"
+ALICRepo="https://github.com/KeyserSozayme/ALIC.git"
+
+# Echo Blue
+function echoBlue () { echo -e "\033[1;96m$varMeShort: \033[1;34m$@\033[0m"; }
+
+# Echo Green
+function echoGreen () { echo -e "\033[1;96m$varMeShort: \033[1;32m$@\033[0m"; }
+
+# Echo Red
+function echoRed () { echo -e "\033[1;96m$varMeShort: \033[1;31m$@\033[0m"; }
+
+# Exit Script
+function die () {
+    echoRed "$@"
+    echoRed "Exiting..."
+    exit 1
+}
+
+# Try a Command, exit if fail
+function try () {
+    
+    if [ "${1:-unset}" == 'unset' ] || [ "${2:-unset}" == 'unset' ] || [ "${3:-unset}" == 'unset' ]; then
+        die "You Used 'try' wrong"
+    fi
+
+    if ($1); then
+        echoGreen "$2"
+    else
+        die "$3"
+    fi
+
+}
+
+# Main Script
+function main () {
+
+    # Increase Cowspace Size
+    echoBlue "Increasing Cowspace"
+    try "mount -o remount,size=2G /run/archiso/cowspace"    "Re-Sizing Successful!"             "Failure During Resize!"
+
+    # Install Git
+    echoBlue "Installing Git"
+    try "pacman --noconfirm -Sy git"                        "Git Is Installed!"                 "Failure During Git Install"
+
+    # CLone ALIC Master Repo
+    echoBlue "Cloning ALIC into ./ALIC"
+    try "git clone --verbose $ALICRepo"                     "ALIC Cloned Successfully!"         "Failure During Repo Cloning!"
+
+    # Allow Executing
+    echoBlue "Changing Mode of ALIC/ALIC"
+    try "chmod +x ALIC/ALIC"                                "Everyone can execute ALIC Now!"    "Failure with chmod"
+
+    # Execute ALIC
+    echoBlue "Executing ALIC/ALIC in 3 Seconds!"
+    sleep 3
+    try "bash ALIC/ALIC"                                     "ALIC Run Successfully"             "ALIC has Failed!"
+
+}
+
+main
+
+echoGreen "! - DONE - !"
