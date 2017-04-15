@@ -69,9 +69,11 @@ function try () {
 # Main Script
 function main () {
 
-    # Increase Cowspace Size
-    echoBlue "Increasing Cowspace"
-    try "mount -o remount,size=2G /run/archiso/cowspace"    "Re-Sizing Successful!"             "Failure During Resize!"
+    if [ -d /run/archiso ]; then
+        # Increase Cowspace Size
+        echoBlue "Increasing Cowspace"
+        try "mount -o remount,size=2G /run/archiso/cowspace"    "Re-Sizing Successful!"             "Failure During Resize!"
+    fi
 
     # Install Git
     echoBlue "Installing Git"
