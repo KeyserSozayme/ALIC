@@ -5,7 +5,7 @@
 # A R C H  L I N U X  I N S T A L L E R  &  C O N F I G U R A T O R
 # 
 # Author:   Keith King
-# Version:  1.0
+# Version:  1.1
 # 
 #
 # Copyright (C) 2017  Keith King
@@ -36,7 +36,7 @@ declare varMeShort="$(basename -s .sh $0)"
 declare varMe="Arch Linux Installer & Configurator"
 declare varSupportedDrives="^sd\|^hd\|^xvd"
 declare -a listOfDisks=($(lsblk | grep "$varSupportedDrives" | awk '{print $1}'))
-declare varInitPackages="base base-devel vim"
+declare varInitPackages="base base-devel ntp vim "
 declare optimizePacLock="/tmp/optimizePacLock.lck"
 
 declare varSkipSafety=false
@@ -583,7 +583,32 @@ function setLocale () {
 
 # Set the clock for the new system
 function setTime () {
-    die "Not Implemented"
+    
+    if !(arch-chroot /mnt tzselect); then
+        die "Error during tzselect!"
+    fi
+
+    if !(arch-chroot /mnt ntpd --help &> /dev/null); then
+        if (dialog --title "Set Time" --backtitle "$varMe" --yesno "NTP is not installed in the new system. Would you like to install it now?" $varLines $varCols); then
+            echoBlue "Installing NTP..."
+            pacstrap /mnt ntp
+        else
+            echoRed "You Really should configure NTP oin your System"
+            sleep 3
+            return
+        fi
+    else
+        if (arch-chroot /mnt systemctl enable ntpd.service); then
+            dialog --title "set Time" --backtitle "$varMe" --msgbox "NTP successfully configured in new system!" $varLines $varCols
+        else
+            die "Enabling NTP threw an error!"
+        fi
+    fi
+
+    if !(arch-chroot /mnt hwclock --systohc ); then
+        die "error while setting hwclock"
+    fi
+
 }
 ###
 
