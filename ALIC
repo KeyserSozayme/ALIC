@@ -535,9 +535,49 @@ function setHostname () {
 }
 ###
 
+# Generate A Dialog Compatible list of Locales based on an array
+function genLocList () {
+
+    for loc in $@; do
+        echo -n "$loc $(echo $loc | sed 's:.UTF-8::') OFF "
+    done
+
+}
+###
+
 # Set the locale of the new system
 function setLocale () {
-    die "Not Implemented"
+
+    utf8Locales=($(cat /etc/locale.gen | grep UTF-8 | sed 's:#::' | awk '{print $1}' | uniq | sort))
+    
+    genLocales=($(dialog --title "System Locale" --no-tags --ok-label "Continue" --cancel-label "Go Back" --backtitle "$varMe" --checklist \
+        "Which Locales would you like to generate?" $varLines $varCols 80 $(genLocList "${utf8Locales[@]}") 3>&1 1>&2 2>&3))
+    if [ "$?" == 1 ]; then return; fi;
+    
+    
+    for loc in ${genLocales[@]}; do
+        if !(arch-chroot /mnt locale-gen "$loc"); then
+            die "Failure to generate locales!"
+        fi
+    done
+
+    
+    if [ "${#genLocales[@]}" == 0 ]; then
+        die "You Didn't Select Anything!"
+    elif [ "${#genLocales[@]}" == 1 ]; then
+        primaryLocale="${genLocales[0]}"
+    else
+        primaryLocale="$(dialog --title "System Locale" --no-tags --ok-label "Select" --cancel-label "Go Back" --backtitle "$varMe" --radiolist \
+            "What Locale is the Primary System Locale?" $varLines $varCols $(($varLines - 8)) $(genLocList "${genLocales[@]}") 3>&1 1>&2 2>&3)"
+        if [ "$?" == 1 ]; then return; fi;
+    fi
+    
+    if (echo "LANG=$primaryLocale" > /mnt/etc/locale.conf); then
+        dialog --title "system Locale" --backtitle "$varMe" --msgbox "Primary Locale Scessfully Set to $primaryLocale" $varLines $varCols
+    else
+        die "Failure during set primary locale"
+    fi
+    
 }
 ###
 
