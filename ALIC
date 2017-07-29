@@ -556,10 +556,9 @@ function setLocale () {
     
     
     for loc in ${genLocales[@]}; do
-        if !(arch-chroot /mnt locale-gen "$loc"); then
-            die "Failure to generate locales!"
-        fi
+        echo "$loc" >> /mnt/etc/locale.gen
     done
+    if !(arch-chroot /mnt locale-gen); then die "Generation of Locales Failed!"; fi;
 
     
     if [ "${#genLocales[@]}" == 0 ]; then
