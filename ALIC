@@ -784,7 +784,7 @@ fi
 while true; do
     
     varMenuChoice="$(dialog --title "ALIC" --no-tags --ok-label "Select" --cancel-label "Exit" --backtitle "$varMe" --menu \
-        "What would you like to do?" $varLines $varCols 6 \
+        "What would you like to do?" $varLines $varCols 7 \
         1   "Prepare Disks"     \
         2   "Pacstrap Base"     \
         3   "Set Hostname"      \
