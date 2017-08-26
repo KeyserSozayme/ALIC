@@ -32,7 +32,7 @@ set -o nounset
 #-| Main Script |-#
 #-----------------#
 
-varMeShort="$(basename -s .sh $0)"
+varMeShort="$(basename $0)"
 ALICRepo="https://github.com/KeyserSozayme/ALIC.git"
 
 # Echo Blue
